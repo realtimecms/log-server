@@ -1,0 +1,16 @@
+{
+  "name": "api-server",
+  "version": "0.1.0",
+  "description": "API server",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "NODE_ENV=test blue-tape tests/*"
+  },
+  "author": "Michał Łaszczewski <michal@emikse.com>",
+  "license": "BSD-3-Clause",
+  "dependencies": {
+    "body-parser": "^1.18.2",
+    "rethinkdb": "^2.3.3"
+  }
+}
