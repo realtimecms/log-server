@@ -19,6 +19,23 @@ function connectToDatabase() {
   return databasePromise
 }
 
+connectToDatabase().then(async db => {
+  await Promise.all([
+      r.tableCreate("clientLogs").run(db).catch(e=>{}),
+      r.tableCreate("clientLogsMessages").run(db).catch(e=>{})
+  ])
+  await Promise.all([
+    r.table("clientLogs").indexCreate("sessionId").run(db).catch(e=>{}),
+    r.table("clientLogs").indexCreate("windowsId").run(db).catch(e=>{}),
+    r.table("clientLogs").indexCreate("userId").run(db).catch(e=>{}),
+    r.table("clientLogs").indexCreate("date").run(db).catch(e=>{}),
+    r.table("clientLogs").indexCreate("tags").run(db).catch(e=>{}),
+    r.table("clientLogsMessages").indexCreate("logId").run(db).catch(e=>{}),
+    r.table("clientLogsMessages").indexCreate("logIdTs", [r.row("logId"), r.row("timestamp")])
+        .run(db).catch(e=>{})
+  ])
+})
+
 function getUserId(sessionId) {
   return connectToDatabase().then(
     conn => r.table("session").get(sessionId).run(conn)
