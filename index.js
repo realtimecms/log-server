@@ -89,6 +89,10 @@ app.post('/saveLogs', function(req, res) {
 
 let port = process.env.LOG_SERVER_PORT || 8709
 
+connectToDatabase().then(db => require("../config/metricsWriter.js")(db,'logs-server', () => ({
+
+})))
+
 app.listen(port, function () {
   console.log(`Log server listening on port ${port}!`)
 })
