@@ -2,12 +2,12 @@ const express = require('express')
 const app = express()
 const bodyParser = require('body-parser')
 
-const r = require('rethinkdb')
+const r = require('rethinkdb-reconnect')
 
-let databasePromise = null
+let database = null
 function connectToDatabase() {
-  if(!databasePromise) {
-    databasePromise = r.connect({
+  if(!database) {
+    database = r.autoConnect({
       host: process.env.DB_HOST,
       port: process.env.DB_PORT,
       db: process.env.DB_NAME,
@@ -16,29 +16,29 @@ function connectToDatabase() {
       timeout: process.env.DB_TIMEOUT,
     })
   }
-  return databasePromise
+  return database
 }
 
-connectToDatabase().then(async db => {
+(async () => {
+  const db = connectToDatabase()
   await Promise.all([
-      r.tableCreate("clientLogs").run(db).catch(e=>{}),
-      r.tableCreate("clientLogsMessages").run(db).catch(e=>{})
+    db.run(r.tableCreate("clientLogs")).catch(e=>{}),
+    db.run(r.tableCreate("clientLogsMessages")).catch(e=>{})
   ])
   await Promise.all([
-    r.table("clientLogs").indexCreate("sessionId").run(db).catch(e=>{}),
-    r.table("clientLogs").indexCreate("windowsId").run(db).catch(e=>{}),
-    r.table("clientLogs").indexCreate("userId").run(db).catch(e=>{}),
-    r.table("clientLogs").indexCreate("date").run(db).catch(e=>{}),
-    r.table("clientLogs").indexCreate("tags").run(db).catch(e=>{}),
-    r.table("clientLogsMessages").indexCreate("logId").run(db).catch(e=>{}),
-    r.table("clientLogsMessages").indexCreate("logIdTs", [r.row("logId"), r.row("timestamp")])
-        .run(db).catch(e=>{})
+    db.run(r.table("clientLogs").indexCreate("sessionId")).catch(e=>{}),
+    db.run(r.table("clientLogs").indexCreate("windowsId")).catch(e=>{}),
+    db.run(r.table("clientLogs").indexCreate("userId")).catch(e=>{}),
+    db.run(r.table("clientLogs").indexCreate("date")).catch(e=>{}),
+    db.run(r.table("clientLogs").indexCreate("tags")).catch(e=>{}),
+    db.run(r.table("clientLogsMessages").indexCreate("logId")).catch(e=>{}),
+    db.run(r.table("clientLogsMessages").indexCreate("logIdTs", [r.row("logId"), r.row("timestamp")])).catch(e=>{})
   ])
-})
+})()
 
 function getUserId(sessionId) {
   return connectToDatabase().then(
-    conn => r.table("session").get(sessionId).run(conn)
+    conn => db.run(r.table("session").get(sessionId))
   ).then(
     session => session && session.userId
   )
@@ -53,21 +53,24 @@ app.use(bodyParser.json());
 
 app.post('/saveLogs', function(req, res) {
   let ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
-  res.contentType('json');
-  connectToDatabase().then(db => {
-    let msg = req.body
-    //console.log("HANDLE MSG", Object.keys(msg))
-    let sessionId = msg.sessionId
-    let windowId = msg.windowId
-    return getUserId(sessionId).then(userId => {
-      let logId = sessionId + "_" + windowId
-      let logs = msg.logs
-      return Promise.all([
+  res.contentType('json')
+  const db = connectToDatabase()
+  let msg = req.body
+  //console.log("HANDLE MSG", Object.keys(msg))
+  let sessionId = msg.sessionId
+  let windowId = msg.windowId
+  return getUserId(sessionId).then(userId => {
+    let logId = sessionId + "_" + windowId
+    let logs = msg.logs
+    return Promise.all([
+      db.run(
         r.table('clientLogsMessages').insert({
           logId,
           timestamp: logs[0].timestamp,
           logs: logs.map(log => JSON.stringify(log))
-        }).run(db),
+        })
+      ),
+      db.run(
         r.table('clientLogs').insert({
           sessionId, windowId,
           userId: userId || null,
@@ -76,10 +79,10 @@ app.post('/saveLogs', function(req, res) {
           date: new Date(),
           id: logId,
           tags: msg.tags
-        }, {conflict: "update"}).run(db)
-      ]).then(saved => {
-        res.send(JSON.stringify({ result: "logsSaved" }))
-      })
+        }, {conflict: "update"})
+      )
+    ]).then(saved => {
+      res.send(JSON.stringify({ result: "logsSaved" }))
     })
   }).catch(error => {
     res.send(JSON.stringify({ error: ""+error }))
@@ -89,9 +92,9 @@ app.post('/saveLogs', function(req, res) {
 
 let port = process.env.LOG_SERVER_PORT || 8709
 
-connectToDatabase().then(db => require("../config/metricsWriter.js")(db,'logs-server', () => ({
+require("../config/metricsWriter.js")('log-server', () => ({
 
-})))
+}))
 
 app.listen(port, function () {
   console.log(`Log server listening on port ${port}!`)
